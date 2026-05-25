@@ -1,0 +1,194 @@
+import { useState } from 'react'
+import { Badge } from '../ui/Badge'
+import { Button } from '../ui/Button'
+import { Modal } from '../ui/Modal'
+import { isLowStock } from '../../lib/inventoryLogic'
+
+export interface MaterialItem {
+  _id: string
+  name: string
+  type: 'filament' | 'resin'
+  pricePerUnit: number
+  stockLevel: number
+  lowStockThreshold: number
+  density?: number
+}
+
+interface MaterialRowProps {
+  material: MaterialItem
+  onUpdateStock: (materialId: string, newLevel: number) => Promise<void>
+  onUpdateThreshold: (materialId: string, threshold: number) => Promise<void>
+  onDelete: (materialId: string) => Promise<void>
+}
+
+const UNIT: Record<'filament' | 'resin', string> = {
+  filament: 'g',
+  resin: 'ml',
+}
+
+export function MaterialRow({ material, onUpdateStock, onUpdateThreshold, onDelete }: MaterialRowProps) {
+  const [stockInput, setStockInput] = useState(String(material.stockLevel))
+  const [thresholdInput, setThresholdInput] = useState(String(material.lowStockThreshold))
+  const [isSavingStock, setIsSavingStock] = useState(false)
+  const [isSavingThreshold, setIsSavingThreshold] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const unit = UNIT[material.type]
+  const lowStock = isLowStock(material.stockLevel, material.lowStockThreshold)
+
+  async function handleSaveStock() {
+    const newLevel = parseFloat(stockInput)
+    if (isNaN(newLevel) || newLevel < 0) return
+    setIsSavingStock(true)
+    try {
+      await onUpdateStock(material._id, newLevel)
+    } finally {
+      setIsSavingStock(false)
+    }
+  }
+
+  async function handleSaveThreshold() {
+    const threshold = parseFloat(thresholdInput)
+    if (isNaN(threshold) || threshold < 0) return
+    setIsSavingThreshold(true)
+    try {
+      await onUpdateThreshold(material._id, threshold)
+    } finally {
+      setIsSavingThreshold(false)
+    }
+  }
+
+  async function handleDelete() {
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await onDelete(material._id)
+      setShowDeleteModal(false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete material.'
+      if (msg.includes('MATERIAL_IN_USE')) {
+        setDeleteError('This material is used by active jobs and cannot be deleted.')
+      } else {
+        setDeleteError(msg)
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="glass-card rounded-xl p-4 flex flex-col gap-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-body-md text-on-surface font-medium">{material.name}</span>
+            <Badge variant="status">{material.type}</Badge>
+            {lowStock && (
+              <Badge variant="alert">
+                <span className="material-symbols-outlined text-[12px] mr-0.5" aria-hidden="true">warning</span>
+                Low Stock
+              </Badge>
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label={`Delete ${material.name}`}
+            onClick={() => setShowDeleteModal(true)}
+            className="text-on-surface-variant hover:text-error transition-colors p-1 rounded min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+          >
+            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">delete</span>
+          </button>
+        </div>
+
+        {/* Price info */}
+        <p className="text-label-sm text-on-surface-variant">
+          ₱{material.pricePerUnit.toFixed(3)} / {unit}
+          {material.density != null && ` · density ${material.density} g/cm³`}
+        </p>
+
+        {/* Stock level adjustment */}
+        <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-1 flex-1">
+            <label
+              htmlFor={`stock-${material._id}`}
+              className="text-label-sm text-on-surface-variant"
+            >
+              Stock Level ({unit})
+            </label>
+            <input
+              id={`stock-${material._id}`}
+              type="number"
+              value={stockInput}
+              onChange={e => setStockInput(e.target.value)}
+              min={0}
+              step={1}
+              className="w-full rounded-lg px-3 py-2 bg-surface-container border border-outline-variant text-on-surface text-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+              aria-label={`Stock level for ${material.name} in ${unit}`}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={handleSaveStock}
+            disabled={isSavingStock}
+            className="flex-shrink-0"
+          >
+            {isSavingStock ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+
+        {/* Low-stock threshold */}
+        <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-1 flex-1">
+            <label
+              htmlFor={`threshold-${material._id}`}
+              className="text-label-sm text-on-surface-variant"
+            >
+              Alert Threshold ({unit})
+            </label>
+            <input
+              id={`threshold-${material._id}`}
+              type="number"
+              value={thresholdInput}
+              onChange={e => setThresholdInput(e.target.value)}
+              min={0}
+              step={1}
+              className="w-full rounded-lg px-3 py-2 bg-surface-container border border-outline-variant text-on-surface text-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+              aria-label={`Alert threshold for ${material.name} in ${unit}`}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={handleSaveThreshold}
+            disabled={isSavingThreshold}
+            className="flex-shrink-0"
+          >
+            {isSavingThreshold ? 'Saving…' : 'Set'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => { setShowDeleteModal(false); setDeleteError(null) }}
+        title={`Delete ${material.name}?`}
+        confirmLabel="Delete"
+        confirmVariant="secondary"
+        onConfirm={handleDelete}
+        isLoading={isDeleting}
+      >
+        <p className="text-body-md text-on-surface-variant">
+          This will permanently remove <strong className="text-on-surface">{material.name}</strong> and all its stock data. This action cannot be undone.
+        </p>
+        {deleteError && (
+          <p role="alert" className="text-label-sm text-error mt-3">
+            {deleteError}
+          </p>
+        )}
+      </Modal>
+    </>
+  )
+}
