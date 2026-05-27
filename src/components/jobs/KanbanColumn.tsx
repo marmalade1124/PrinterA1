@@ -11,6 +11,7 @@ interface KanbanColumnProps {
   printerStatuses: Record<string, LivePrinterStatus>
   onAdvance: (jobId: string, confirmed?: boolean) => void
   onMoveBack: (jobId: string, targetStage: JobStage) => void
+  onEditJob: (jobId: string) => void
 }
 
 const STAGE_DOT: Record<JobStage, string> = {
@@ -37,6 +38,7 @@ export function KanbanColumn({
   printerStatuses,
   onAdvance,
   onMoveBack,
+  onEditJob,
 }: KanbanColumnProps) {
   return (
     <div className="w-80 flex-shrink-0 flex flex-col h-full">
@@ -83,6 +85,7 @@ export function KanbanColumn({
                   liveStatus={printerStatuses[job.printerId] ?? null}
                   onAdvance={onAdvance}
                   onMoveBack={onMoveBack}
+                  onEdit={onEditJob}
                 />
               </div>
             )

@@ -51,6 +51,20 @@ export const updateThreshold = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    materialId: v.id("materials"),
+    name: v.optional(v.string()),
+    type: v.optional(v.union(v.literal("filament"), v.literal("resin"))),
+    pricePerUnit: v.optional(v.number()),
+    density: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { materialId, ...fields } = args;
+    await ctx.db.patch(materialId, fields);
+  },
+});
+
 export const remove = mutation({
   args: { materialId: v.id("materials") },
   handler: async (ctx, args) => {

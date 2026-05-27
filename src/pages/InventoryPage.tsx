@@ -14,6 +14,7 @@ export default function InventoryPage() {
   const rawMaterials = useQuery(api.materials.listAll) ?? []
   const updateStock = useMutation(api.materials.updateStock)
   const updateThreshold = useMutation(api.materials.updateThreshold)
+  const updateDetails = useMutation(api.materials.update)
   const removeMaterial = useMutation(api.materials.remove)
   const createMaterial = useMutation(api.materials.create)
 
@@ -41,6 +42,11 @@ export default function InventoryPage() {
   async function handleUpdateThreshold(materialId: string, threshold: number) {
     await updateThreshold({ materialId: materialId as Id<'materials'>, threshold })
     showToast('Alert threshold updated.', 'success')
+  }
+
+  async function handleUpdateDetails(materialId: string, data: { name: string; type: 'filament' | 'resin'; pricePerUnit: number; density?: number }) {
+    await updateDetails({ materialId: materialId as Id<'materials'>, ...data })
+    showToast('Material updated.', 'success')
   }
 
   async function handleDelete(materialId: string) {
@@ -88,6 +94,7 @@ export default function InventoryPage() {
             materials={materials}
             onUpdateStock={handleUpdateStock}
             onUpdateThreshold={handleUpdateThreshold}
+            onUpdateDetails={handleUpdateDetails}
             onDelete={handleDelete}
           />
         </div>

@@ -37,6 +37,7 @@ export interface JobCardProps {
   liveStatus?: LivePrinterStatus | null
   onAdvance: (jobId: string, confirmed?: boolean) => void
   onMoveBack: (jobId: string, targetStage: JobStage) => void
+  onEdit: (jobId: string) => void
 }
 
 const STAGE_ACCENT: Record<JobStage, string> = {
@@ -63,7 +64,7 @@ function useTick(enabled: boolean, intervalMs = 30000) {
   }, [enabled, intervalMs])
 }
 
-export function JobCard({ job, materialName, printerName, liveStatus, onAdvance, onMoveBack }: JobCardProps) {
+export function JobCard({ job, materialName, printerName, liveStatus, onAdvance, onMoveBack, onEdit }: JobCardProps) {
   const [showMenu, setShowMenu] = useState(false)
 
   const isLastStage = job.stage === 'Ready for Pickup'
@@ -108,20 +109,35 @@ export function JobCard({ job, materialName, printerName, liveStatus, onAdvance,
           >
             <span className="material-symbols-outlined text-[18px]" aria-hidden="true">more_horiz</span>
           </button>
-          {showMenu && previousStages.length > 0 && (
+          {showMenu && (
             <div role="menu" className="absolute right-0 top-9 z-20 glass-panel rounded-xl py-1 min-w-[180px] shadow-lg">
-              <p className="text-label-sm text-on-surface-variant px-3 py-1.5">Move back to:</p>
-              {previousStages.map(stage => (
-                <button
-                  key={stage}
-                  role="menuitem"
-                  type="button"
-                  onClick={() => { setShowMenu(false); onMoveBack(job._id, stage) }}
-                  className="w-full text-left px-3 py-2 text-label-md text-on-surface hover:bg-white/5 transition-colors"
-                >
-                  {stage}
-                </button>
-              ))}
+              {/* Edit option — always available */}
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => { setShowMenu(false); onEdit(job._id) }}
+                className="w-full text-left px-3 py-2 text-label-md text-primary hover:bg-white/5 transition-colors flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-[14px]" aria-hidden="true">edit</span>
+                Edit job
+              </button>
+              {previousStages.length > 0 && (
+                <>
+                  <div className="border-t border-white/10 my-1" />
+                  <p className="text-label-sm text-on-surface-variant px-3 py-1.5">Move back to:</p>
+                  {previousStages.map(stage => (
+                    <button
+                      key={stage}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => { setShowMenu(false); onMoveBack(job._id, stage) }}
+                      className="w-full text-left px-3 py-2 text-label-md text-on-surface hover:bg-white/5 transition-colors"
+                    >
+                      {stage}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>

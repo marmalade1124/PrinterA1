@@ -10,6 +10,7 @@ interface KanbanBoardProps {
   printerStatuses: Record<string, LivePrinterStatus>
   onAdvance: (jobId: string, confirmed?: boolean) => void
   onMoveBack: (jobId: string, targetStage: JobStage) => void
+  onEditJob: (jobId: string) => void
 }
 
 export function KanbanBoard({
@@ -19,6 +20,7 @@ export function KanbanBoard({
   printerStatuses,
   onAdvance,
   onMoveBack,
+  onEditJob,
 }: KanbanBoardProps) {
   return (
     <div className="h-full overflow-x-auto overflow-y-hidden">
@@ -35,6 +37,7 @@ export function KanbanBoard({
               printerStatuses={printerStatuses}
               onAdvance={onAdvance}
               onMoveBack={onMoveBack}
+              onEditJob={onEditJob}
             />
           )
         })}

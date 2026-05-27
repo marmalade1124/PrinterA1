@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Modal } from '../ui/Modal'
 import { Input } from '../ui/Input'
 import { NewJobInputs, validateNewJobInputs } from '../../lib/jobCreation'
@@ -9,6 +9,16 @@ interface NewJobFormProps {
   materials: Array<{ _id: string; name: string; type: 'filament' | 'resin' }>
   printers: Array<{ _id: string; name: string }>
   onSubmit: (data: NewJobInputs & { estimatedVolumeCm3: number }) => Promise<void>
+  prefill?: Partial<{
+    clientName: string
+    materialId: string
+    printerId: string
+    estimatedPrintTime: number
+    estimatedVolumeCm3: number
+    quotedPrice: number
+    materialUsedGrams: number
+    materialUsedMl: number
+  }>
 }
 
 const EMPTY_FORM = {
@@ -18,12 +28,37 @@ const EMPTY_FORM = {
   printerId: '',
   estimatedPrintTime: '',
   estimatedVolumeCm3: '',
+  materialUsed: '',
+  quotedPrice: '',
 }
 
-export function NewJobForm({ isOpen, onClose, materials, printers, onSubmit }: NewJobFormProps) {
+export function NewJobForm({ isOpen, onClose, materials, printers, onSubmit, prefill }: NewJobFormProps) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [errors, setErrors] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Apply prefill when modal opens or prefill changes
+  useEffect(() => {
+    if (isOpen && prefill) {
+      const selectedMaterial = materials.find(m => m._id === prefill.materialId)
+      const materialUsedVal = selectedMaterial?.type === 'resin'
+        ? prefill.materialUsedMl
+        : prefill.materialUsedGrams
+      setForm({
+        clientName: prefill.clientName ?? '',
+        materialId: prefill.materialId ?? '',
+        layerHeight: '',
+        printerId: prefill.printerId ?? '',
+        estimatedPrintTime: prefill.estimatedPrintTime != null ? String(prefill.estimatedPrintTime) : '',
+        estimatedVolumeCm3: prefill.estimatedVolumeCm3 != null ? String(prefill.estimatedVolumeCm3) : '',
+        materialUsed: materialUsedVal != null ? String(materialUsedVal) : '',
+        quotedPrice: prefill.quotedPrice != null ? String(prefill.quotedPrice) : '',
+      })
+    } else if (!isOpen) {
+      setForm(EMPTY_FORM)
+      setErrors([])
+    }
+  }, [isOpen, prefill])
 
   function handleClose() {
     setForm(EMPTY_FORM)
@@ -35,6 +70,12 @@ export function NewJobForm({ isOpen, onClose, materials, printers, onSubmit }: N
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
+  const selectedMaterial = materials.find(m => m._id === form.materialId)
+  const materialUnit = selectedMaterial?.type === 'resin' ? 'ml' : 'g'
+  const materialUsedLabel = selectedMaterial?.type === 'resin'
+    ? 'Material Used (ml)'
+    : 'Material Used (g)'
+
   async function handleSubmit() {
     const inputs: NewJobInputs = {
       clientName: form.clientName,
@@ -45,7 +86,27 @@ export function NewJobForm({ isOpen, onClose, materials, printers, onSubmit }: N
       estimatedVolumeCm3: parseFloat(form.estimatedVolumeCm3) || 0,
     }
 
+    // Attach material used and quoted price
+    const materialUsedVal = parseFloat(form.materialUsed)
+    if (!isNaN(materialUsedVal) && materialUsedVal > 0) {
+      if (selectedMaterial?.type === 'resin') {
+        inputs.materialUsedMl = materialUsedVal
+      } else {
+        inputs.materialUsedGrams = materialUsedVal
+      }
+    }
+    const quotedPriceVal = parseFloat(form.quotedPrice)
+    if (!isNaN(quotedPriceVal) && quotedPriceVal > 0) {
+      inputs.quotedPrice = quotedPriceVal
+    }
+
     const validationErrors = validateNewJobInputs(inputs)
+
+    // Validate material used
+    if (!form.materialUsed || isNaN(parseFloat(form.materialUsed)) || parseFloat(form.materialUsed) < 0.01) {
+      validationErrors.push(`Material used is required (min 0.01 ${materialUnit}).`)
+    }
+
     if (validationErrors.length > 0) {
       setErrors(validationErrors)
       return
@@ -180,6 +241,31 @@ export function NewJobForm({ isOpen, onClose, materials, printers, onSubmit }: N
           placeholder="e.g. 45.2"
           required
           min={0.01}
+          step={0.01}
+        />
+
+        {/* Material Used */}
+        <Input
+          id="new-job-material-used"
+          label={materialUsedLabel}
+          type="number"
+          value={form.materialUsed}
+          onChange={e => setField('materialUsed', e.target.value)}
+          placeholder={selectedMaterial?.type === 'resin' ? 'e.g. 30.5' : 'e.g. 45.2'}
+          required
+          min={0.01}
+          step={0.01}
+        />
+
+        {/* Quoted Price (optional) */}
+        <Input
+          id="new-job-quoted-price"
+          label="Quoted Price (₱) — optional"
+          type="number"
+          value={form.quotedPrice}
+          onChange={e => setField('quotedPrice', e.target.value)}
+          placeholder="e.g. 350.00"
+          min={0}
           step={0.01}
         />
       </div>

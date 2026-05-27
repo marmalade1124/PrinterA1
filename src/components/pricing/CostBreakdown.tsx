@@ -6,6 +6,7 @@ interface CostBreakdownProps {
   fileName?: string
   volumeCm3?: number
   printTimeMin?: number
+  clientHourlyRate?: number
 }
 
 function fmt(value: number): string {
@@ -19,7 +20,7 @@ function fmtTime(minutes: number): string {
   return m > 0 ? h + 'h ' + m + 'm' : h + 'h'
 }
 
-export function CostBreakdown({ result, fileName, volumeCm3, printTimeMin }: CostBreakdownProps) {
+export function CostBreakdown({ result, fileName, volumeCm3, printTimeMin, clientHourlyRate = 50 }: CostBreakdownProps) {
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[200px] rounded-xl border border-dashed border-outline-variant p-8 text-center gap-3">
@@ -36,7 +37,7 @@ export function CostBreakdown({ result, fileName, volumeCm3, printTimeMin }: Cos
   const rows = [
     { label: 'Material Cost', value: fmt(result.materialCost), sub: volumeCm3 != null ? volumeCm3.toFixed(2) + ' cm³' : undefined },
     { label: 'Electricity Cost', value: fmt(result.electricityCost), sub: 'actual power draw' },
-    { label: 'Print Time Charge', value: fmt(result.printTimeCost), sub: printTimeMin != null ? fmtTime(printTimeMin) + ' @ ₱50/hr' : '₱50/hr' },
+    { label: 'Print Time Charge', value: fmt(result.printTimeCost), sub: printTimeMin != null ? fmtTime(printTimeMin) + ' @ ₱' + clientHourlyRate + '/hr' : '₱' + clientHourlyRate + '/hr' },
     { label: 'Subtotal', value: fmt(result.subtotal), sub: undefined },
     { label: 'Markup', value: fmt(result.markupAmount), sub: undefined },
   ]

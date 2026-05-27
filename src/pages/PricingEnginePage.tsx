@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from 'convex/react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../../convex/_generated/api'
 import { FileUploadZone } from '../components/pricing/FileUploadZone'
 import { PricingForm } from '../components/pricing/PricingForm'
 import { CostBreakdown } from '../components/pricing/CostBreakdown'
 import { QuoteGenerator } from '../components/pricing/QuoteGenerator'
+import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { useToast } from '../components/ui/Toast'
 import { calculatePrice, PricingInputs, PricingResult } from '../lib/pricingFormula'
@@ -21,6 +23,7 @@ export default function PricingEnginePage() {
   const settings = useQuery(api.settings.get) ?? { electricityRatePerKwh: 10.5886, defaultMarkupBuffer: 15, clientHourlyRate: 50 }
 
   const { showToast } = useToast()
+  const navigate = useNavigate()
 
   const [parsedModel, setParsedModel] = useState<ParsedModel | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
@@ -55,6 +58,29 @@ export default function PricingEnginePage() {
     showToast('Quote copied to clipboard.', 'success')
   }
 
+  function handleCreateJob() {
+    if (!pricingResult || !parsedModel || !selectedMaterial || !selectedPrinter) return
+    const volumeCm3 = parsedModel.volumeCm3
+    const density = selectedMaterial.density ?? 1.24
+    const materialUsedGrams = selectedMaterial.type === 'filament' ? volumeCm3 * density : undefined
+    const materialUsedMl = selectedMaterial.type === 'resin' ? volumeCm3 : undefined
+
+    navigate('/jobs', {
+      state: {
+        prefillJob: {
+          clientName,
+          materialId: selectedMaterial._id,
+          printerId: selectedPrinter._id,
+          estimatedPrintTime: Math.round(printTimeMin),
+          estimatedVolumeCm3: volumeCm3,
+          quotedPrice: pricingResult.finalPrice,
+          materialUsedGrams,
+          materialUsedMl,
+        }
+      }
+    })
+  }
+
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="flex-shrink-0 px-8 pt-6 pb-4">
@@ -63,22 +89,11 @@ export default function PricingEnginePage() {
       </div>
       <div className="flex-1 px-8 pb-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
-
-          {/* Left column */}
           <div className="flex flex-col gap-6">
-            {/* Client name */}
             <div>
               <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Client</h2>
-              <Input
-                id="client-name"
-                label="Client Name (optional)"
-                value={clientName}
-                onChange={e => setClientName(e.target.value)}
-                placeholder="e.g. NovaTech Industries"
-              />
+              <Input id="client-name" label="Client Name (optional)" value={clientName} onChange={e => setClientName(e.target.value)} placeholder="e.g. NovaTech Industries" />
             </div>
-
-            {/* File upload */}
             <div>
               <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">3D Model</h2>
               <FileUploadZone
@@ -87,8 +102,6 @@ export default function PricingEnginePage() {
               />
               {parseError && <p role="alert" className="text-label-sm text-error mt-2">{parseError}</p>}
             </div>
-
-            {/* Pricing parameters */}
             <div>
               <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Pricing Parameters</h2>
               <div className="glass-card rounded-xl p-5">
@@ -100,25 +113,19 @@ export default function PricingEnginePage() {
                     defaultElectricityRate={settings.electricityRatePerKwh}
                     defaultClientHourlyRate={settings.clientHourlyRate}
                     estimatedPrintTimeMin={parsedModel?.estimatedPrintTimeMin}
-                    onChange={inputs => {
-                      setPricingInputs(prev => ({ ...prev, ...inputs }))
-                      // Track selected material/printer for quote
-                      if (inputs.materialType) {
-                        const mat = formMaterials.find(m => m.type === inputs.materialType && m.pricePerUnit === inputs.pricePerUnit)
-                        if (mat) setSelectedMaterialId(mat._id)
-                      }
+                    onChange={inputs => setPricingInputs(prev => ({ ...prev, ...inputs }))}
+                    onSelectionChange={(matId, printId) => {
+                      setSelectedMaterialId(matId)
+                      setSelectedPrinterId(printId)
                     }}
                   />
                 ) : (
-                  <p className="text-body-md text-on-surface-variant">
-                    Add materials and printers in the Inventory and Printers pages first.
-                  </p>
+                  <p className="text-body-md text-on-surface-variant">Add materials and printers first.</p>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Right column */}
           <div className="flex flex-col gap-6">
             <div>
               <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Cost Estimate</h2>
@@ -127,26 +134,39 @@ export default function PricingEnginePage() {
                 fileName={parsedModel?.fileName}
                 volumeCm3={parsedModel?.volumeCm3}
                 printTimeMin={printTimeMin}
+                clientHourlyRate={pricingInputs.clientHourlyRate ?? settings.clientHourlyRate}
               />
             </div>
 
-            {/* Quote generator — only show when we have a result */}
             {pricingResult && parsedModel && (
-              <div>
-                <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Generate Quote</h2>
-                <div className="glass-card rounded-xl p-5">
-                  <QuoteGenerator
-                    result={pricingResult}
-                    fileName={parsedModel.fileName}
-                    volumeCm3={parsedModel.volumeCm3}
-                    printTimeMin={printTimeMin}
-                    materialName={selectedMaterial?.name ?? 'Unknown'}
-                    printerName={selectedPrinter?.name ?? 'Unknown'}
-                    clientName={clientName || undefined}
-                    onCopy={handleCopyText}
-                  />
+              <>
+                <div>
+                  <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Generate Quote</h2>
+                  <div className="glass-card rounded-xl p-5">
+                    <QuoteGenerator
+                      result={pricingResult}
+                      fileName={parsedModel.fileName}
+                      volumeCm3={parsedModel.volumeCm3}
+                      printTimeMin={printTimeMin}
+                      materialName={selectedMaterial?.name ?? 'Unknown'}
+                      printerName={selectedPrinter?.name ?? 'Unknown'}
+                      clientName={clientName || undefined}
+                      onCopy={handleCopyText}
+                    />
+                  </div>
                 </div>
-              </div>
+                <div>
+                  <h2 className="text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Create Job</h2>
+                  <div className="glass-card rounded-xl p-5 flex flex-col gap-3">
+                    <p className="text-body-md text-on-surface-variant">
+                      Create a print job pre-filled with this quote's data.
+                    </p>
+                    <Button variant="primary" icon="add_task" onClick={handleCreateJob} className="w-full">
+                      Create Job from This Quote
+                    </Button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

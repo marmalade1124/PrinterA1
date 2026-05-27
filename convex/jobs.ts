@@ -56,9 +56,10 @@ export const create = mutation({
     materialUsedMl: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // Generate sequential job number
-    const allJobs = await ctx.db.query("jobs").collect();
-    const jobNumber = `JOB-${String(allJobs.length + 1).padStart(4, "0")}`;
+    // Generate collision-resistant job number using timestamp + random suffix
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    const jobNumber = `JOB-${timestamp.toString().slice(-6)}${random}`;
 
     return await ctx.db.insert("jobs", {
       ...args,

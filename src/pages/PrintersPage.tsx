@@ -33,6 +33,7 @@ const EMPTY_FORM: PrinterFormData = { name: '', powerConsumptionKw: '' }
 export default function PrintersPage() {
   const printers = useQuery(api.printers.listAll) ?? []
   const printerStatuses = useQuery(api.printerStatus.listAll) ?? []
+  const settings = useQuery(api.settings.get) ?? { electricityRatePerKwh: 10.5886 }
   const createPrinter = useMutation(api.printers.create)
   const updatePrinter = useMutation(api.printers.update)
   const removePrinter = useMutation(api.printers.remove)
@@ -115,8 +116,13 @@ export default function PrintersPage() {
       await removePrinter({ printerId: deletingId as Id<'printers'> })
       showToast('Printer deleted.', 'success')
       setDeletingId(null)
-    } catch {
-      showToast('Failed to delete printer.', 'error')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ''
+      if (msg.includes('PRINTER_IN_USE')) {
+        showToast('This printer has active jobs and cannot be deleted.', 'error')
+      } else {
+        showToast('Failed to delete printer.', 'error')
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -240,7 +246,7 @@ export default function PrintersPage() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-label-sm text-on-surface-variant">Electricity cost</span>
-                      <span className="text-label-sm text-on-surface">₱{(printer.powerConsumptionKw * 10.5886).toFixed(2)}/hr</span>
+                      <span className="text-label-sm text-on-surface">₱{(printer.powerConsumptionKw * settings.electricityRatePerKwh).toFixed(2)}/hr</span>
                     </div>
                     {isOnline && status && (
                       <div className="flex items-center justify-between">

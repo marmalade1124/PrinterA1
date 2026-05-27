@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from 'convex/react'
+import { useLocation } from 'react-router-dom'
 import { api } from '../../convex/_generated/api'
 import { KanbanBoard } from '../components/jobs/KanbanBoard'
 import { NewJobForm } from '../components/jobs/NewJobForm'
 import { Modal } from '../components/ui/Modal'
+import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { useToast } from '../components/ui/Toast'
-import { JobStage } from '../types/index'
+import { JobStage, STAGE_ORDER } from '../types/index'
 import { advanceStageLogic, isBackwardTransition } from '../lib/stageTransitions'
 import { NewJobInputs } from '../lib/jobCreation'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -19,6 +21,19 @@ interface ConfirmModal {
   message: string
 }
 
+interface EditJobData {
+  jobId: string
+  clientName: string
+  quotedPrice: string
+  materialUsed: string
+  materialType: 'filament' | 'resin'
+  estimatedPrintTime: string
+  estimatedVolumeCm3: string
+}
+
+const ALL_STAGES = 'All Stages'
+const FILTER_OPTIONS = [ALL_STAGES, ...STAGE_ORDER] as const
+
 export default function JobQueuePage() {
   const jobs = useQuery(api.jobs.listAll) ?? []
   const materials = useQuery(api.materials.listAll) ?? []
@@ -27,9 +42,11 @@ export default function JobQueuePage() {
 
   const createJob = useMutation(api.jobs.create)
   const advanceStage = useMutation(api.jobs.advanceStage)
+  const updateJob = useMutation(api.jobs.updateJob)
+
+  const location = useLocation()
 
   // Build a map of printerId → live status for fast lookup
-  // We match by printerName since the bridge uses name, not Convex ID
   const printerStatusMap: Record<string, LivePrinterStatus> = {}
   for (const status of rawPrinterStatuses) {
     const matchedPrinter = printers.find(p => p.name === status.printerName)
@@ -50,17 +67,34 @@ export default function JobQueuePage() {
   const { showToast } = useToast()
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [stageFilter, setStageFilter] = useState<string>(ALL_STAGES)
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   const [isNewJobOpen, setIsNewJobOpen] = useState(false)
+  const [newJobPrefill, setNewJobPrefill] = useState<NewJobFormProps['prefill']>(undefined)
   const [confirmModal, setConfirmModal] = useState<ConfirmModal | null>(null)
   const [isConfirming, setIsConfirming] = useState(false)
+  const [editJobData, setEditJobData] = useState<EditJobData | null>(null)
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false)
 
-  const filteredJobs = searchQuery.trim()
-    ? jobs.filter(
-        j =>
-          j.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          j.jobNumber.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : jobs
+  // Fix 6: Check location.state for prefill data from Pricing Engine
+  useEffect(() => {
+    const state = location.state as Record<string, unknown> | null
+    if (state?.prefillJob) {
+      const prefill = state.prefillJob as NewJobFormProps['prefill']
+      setNewJobPrefill(prefill)
+      setIsNewJobOpen(true)
+      // Clear state so re-navigating doesn't re-open
+      window.history.replaceState({}, '')
+    }
+  }, [location.state])
+
+  const filteredJobs = jobs.filter(j => {
+    const matchesSearch = !searchQuery.trim() ||
+      j.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      j.jobNumber.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesStage = stageFilter === ALL_STAGES || j.stage === stageFilter
+    return matchesSearch && matchesStage
+  })
 
   async function handleAdvance(jobId: string, confirmed?: boolean) {
     const job = jobs.find(j => j._id === jobId)
@@ -108,6 +142,25 @@ export default function JobQueuePage() {
     })
   }
 
+  function handleEditJob(jobId: string) {
+    const job = jobs.find(j => j._id === jobId)
+    if (!job) return
+    const mat = materials.find(m => m._id === (job.materialId as string))
+    const materialType = mat?.type ?? 'filament'
+    const materialUsed = materialType === 'resin'
+      ? String(job.materialUsedMl ?? '')
+      : String(job.materialUsedGrams ?? '')
+    setEditJobData({
+      jobId: job._id as string,
+      clientName: job.clientName,
+      quotedPrice: job.quotedPrice != null ? String(job.quotedPrice) : '',
+      materialUsed,
+      materialType,
+      estimatedPrintTime: String(job.estimatedPrintTime),
+      estimatedVolumeCm3: String(job.estimatedVolumeCm3),
+    })
+  }
+
   async function handleConfirm() {
     if (!confirmModal) return
     setIsConfirming(true)
@@ -127,6 +180,10 @@ export default function JobQueuePage() {
   }
 
   async function handleNewJobSubmit(data: NewJobInputs & { estimatedVolumeCm3: number }) {
+    // Determine which material field to use based on material type
+    const selectedMaterial = materials.find(m => m._id === data.materialId)
+    const isResin = selectedMaterial?.type === 'resin'
+
     await createJob({
       clientName: data.clientName,
       materialId: data.materialId as Id<'materials'>,
@@ -134,8 +191,35 @@ export default function JobQueuePage() {
       printerId: data.printerId as Id<'printers'>,
       estimatedPrintTime: data.estimatedPrintTime,
       estimatedVolumeCm3: data.estimatedVolumeCm3,
+      quotedPrice: data.quotedPrice,
+      materialUsedGrams: isResin ? undefined : data.materialUsedGrams,
+      materialUsedMl: isResin ? data.materialUsedMl : undefined,
     })
     showToast('Job created successfully.', 'success')
+  }
+
+  async function handleEditSubmit() {
+    if (!editJobData) return
+    setIsEditSubmitting(true)
+    try {
+      const materialUsedVal = parseFloat(editJobData.materialUsed)
+      const quotedPriceVal = parseFloat(editJobData.quotedPrice)
+      await updateJob({
+        jobId: editJobData.jobId as Id<'jobs'>,
+        clientName: editJobData.clientName || undefined,
+        estimatedPrintTime: parseFloat(editJobData.estimatedPrintTime) || undefined,
+        estimatedVolumeCm3: parseFloat(editJobData.estimatedVolumeCm3) || undefined,
+        quotedPrice: !isNaN(quotedPriceVal) && quotedPriceVal > 0 ? quotedPriceVal : undefined,
+        materialUsedGrams: editJobData.materialType === 'filament' && !isNaN(materialUsedVal) ? materialUsedVal : undefined,
+        materialUsedMl: editJobData.materialType === 'resin' && !isNaN(materialUsedVal) ? materialUsedVal : undefined,
+      })
+      showToast('Job updated.', 'success')
+      setEditJobData(null)
+    } catch (err) {
+      showToast(`Failed to update job: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    } finally {
+      setIsEditSubmitting(false)
+    }
   }
 
   // Shape data for KanbanBoard (uses string _id)
@@ -181,15 +265,53 @@ export default function JobQueuePage() {
                 className="pl-9 pr-3 py-2 rounded-lg bg-surface-container border border-outline-variant text-on-surface text-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors w-48 md:w-64"
               />
             </div>
-            <button
-              type="button"
-              aria-label="Filter jobs"
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-surface-container border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors px-3 gap-2"
-            >
-              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">filter_list</span>
-              <span className="text-label-md hidden md:inline">Filter</span>
-            </button>
-            <Button variant="primary" icon="add" onClick={() => setIsNewJobOpen(true)}>
+            {/* Fix 8: Filter dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Filter jobs"
+                aria-expanded={showFilterDropdown}
+                aria-haspopup="listbox"
+                onClick={() => setShowFilterDropdown(v => !v)}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-surface-container border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors px-3 gap-2"
+              >
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">filter_list</span>
+                <span className="text-label-md hidden md:inline">
+                  {stageFilter === ALL_STAGES ? 'Filter' : stageFilter}
+                </span>
+                {stageFilter !== ALL_STAGES && (
+                  <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" aria-hidden="true" />
+                )}
+              </button>
+              {showFilterDropdown && (
+                <div
+                  role="listbox"
+                  aria-label="Filter by stage"
+                  className="absolute right-0 top-12 z-20 glass-panel rounded-xl py-1 min-w-[180px] shadow-lg"
+                >
+                  {FILTER_OPTIONS.map(option => (
+                    <button
+                      key={option}
+                      role="option"
+                      aria-selected={stageFilter === option}
+                      type="button"
+                      onClick={() => { setStageFilter(option); setShowFilterDropdown(false) }}
+                      className={`w-full text-left px-3 py-2 text-label-md transition-colors flex items-center gap-2 ${
+                        stageFilter === option
+                          ? 'text-primary bg-primary/10'
+                          : 'text-on-surface hover:bg-white/5'
+                      }`}
+                    >
+                      {stageFilter === option && (
+                        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">check</span>
+                      )}
+                      <span className={stageFilter === option ? '' : 'ml-5'}>{option}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Button variant="primary" icon="add" onClick={() => { setNewJobPrefill(undefined); setIsNewJobOpen(true) }}>
               New Print Job
             </Button>
           </div>
@@ -205,17 +327,80 @@ export default function JobQueuePage() {
           printerStatuses={printerStatusMap}
           onAdvance={handleAdvance}
           onMoveBack={handleMoveBack}
+          onEditJob={handleEditJob}
         />
       </div>
 
       {/* New Job Form modal */}
       <NewJobForm
         isOpen={isNewJobOpen}
-        onClose={() => setIsNewJobOpen(false)}
+        onClose={() => { setIsNewJobOpen(false); setNewJobPrefill(undefined) }}
         materials={formMaterials}
         printers={formPrinters}
         onSubmit={handleNewJobSubmit}
+        prefill={newJobPrefill}
       />
+
+      {/* Edit Job Modal (Fix 5) */}
+      {editJobData && (
+        <Modal
+          isOpen={!!editJobData}
+          onClose={() => setEditJobData(null)}
+          title="Edit Job"
+          confirmLabel="Save Changes"
+          onConfirm={handleEditSubmit}
+          isLoading={isEditSubmitting}
+        >
+          <div className="flex flex-col gap-4">
+            <Input
+              id="edit-job-client-name"
+              label="Client Name"
+              value={editJobData.clientName}
+              onChange={e => setEditJobData(prev => prev ? { ...prev, clientName: e.target.value } : prev)}
+              placeholder="e.g. Acme Corp"
+            />
+            <Input
+              id="edit-job-print-time"
+              label="Estimated Print Time (minutes)"
+              type="number"
+              value={editJobData.estimatedPrintTime}
+              onChange={e => setEditJobData(prev => prev ? { ...prev, estimatedPrintTime: e.target.value } : prev)}
+              placeholder="e.g. 240"
+              min={1}
+            />
+            <Input
+              id="edit-job-volume"
+              label="Estimated Volume (cm³)"
+              type="number"
+              value={editJobData.estimatedVolumeCm3}
+              onChange={e => setEditJobData(prev => prev ? { ...prev, estimatedVolumeCm3: e.target.value } : prev)}
+              placeholder="e.g. 45.2"
+              min={0.01}
+              step={0.01}
+            />
+            <Input
+              id="edit-job-material-used"
+              label={editJobData.materialType === 'resin' ? 'Material Used (ml)' : 'Material Used (g)'}
+              type="number"
+              value={editJobData.materialUsed}
+              onChange={e => setEditJobData(prev => prev ? { ...prev, materialUsed: e.target.value } : prev)}
+              placeholder="e.g. 45.2"
+              min={0}
+              step={0.01}
+            />
+            <Input
+              id="edit-job-quoted-price"
+              label="Quoted Price (₱)"
+              type="number"
+              value={editJobData.quotedPrice}
+              onChange={e => setEditJobData(prev => prev ? { ...prev, quotedPrice: e.target.value } : prev)}
+              placeholder="e.g. 350.00"
+              min={0}
+              step={0.01}
+            />
+          </div>
+        </Modal>
+      )}
 
       {/* Confirmation modal */}
       {confirmModal && (
@@ -238,4 +423,18 @@ export default function JobQueuePage() {
       )}
     </div>
   )
+}
+
+// Re-export type for use in NewJobForm
+type NewJobFormProps = {
+  prefill?: Partial<{
+    clientName: string
+    materialId: string
+    printerId: string
+    estimatedPrintTime: number
+    estimatedVolumeCm3: number
+    quotedPrice: number
+    materialUsedGrams: number
+    materialUsedMl: number
+  }>
 }

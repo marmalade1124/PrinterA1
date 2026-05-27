@@ -24,6 +24,7 @@ interface PricingFormProps {
   defaultClientHourlyRate: number
   estimatedPrintTimeMin?: number
   onChange: (inputs: Partial<PricingInputs>) => void
+  onSelectionChange?: (materialId: string, printerId: string) => void
 }
 
 const selectClass =
@@ -37,6 +38,7 @@ export function PricingForm({
   defaultClientHourlyRate,
   estimatedPrintTimeMin,
   onChange,
+  onSelectionChange,
 }: PricingFormProps) {
   const [materialId, setMaterialId] = useState(materials[0]?._id ?? '')
   const [printerId, setPrinterId] = useState(printers[0]?._id ?? '')
@@ -71,6 +73,7 @@ export function PricingForm({
       partial.estimatedPrintTimeMin = parseFloat(printTime) || 0
     }
     onChange(partial)
+    onSelectionChange?.(materialId, printerId)
   }, [materialId, printerId, markupBuffer, electricityRate, clientHourlyRate, printTime, materials, printers])
 
   return (
